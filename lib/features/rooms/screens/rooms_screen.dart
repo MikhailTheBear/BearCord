@@ -11,6 +11,8 @@ import '../../../core/providers/auth_provider.dart';
 import '../providers/rooms_provider.dart';
 import '../widgets/room_item.dart';
 
+import '../../../core/services/live_activity_service.dart';
+import '../../../core/services/update_service.dart';
 class RoomsScreen extends ConsumerStatefulWidget {
 const RoomsScreen({super.key});
 
@@ -33,6 +35,10 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
 if (!mounted) return;
 
 ref.read(roomsProvider.notifier).loadRooms();
+UpdateService.checkForUpdate(context);
+
+
+
 });
 }
 
@@ -41,6 +47,42 @@ void dispose() {
 _roomCodeController.dispose();
 _dmTargetController.dispose();
 super.dispose();
+}
+
+
+
+Future<void> _testLiveActivity() async {
+  final supported = await LiveActivityService.isSupported();
+
+  if (!supported) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Live Activities недоступны'),
+      ),
+    );
+    return;
+  }
+
+  final id = await LiveActivityService.start(
+    chatID: 'test_chat',
+    chatName: 'Тестовый чат',
+    senderName: 'Михаил',
+    message: '🔥 Тестовая Live Activity',
+  );
+
+  if (!mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        id != null
+            ? '🏝️ Live Activity запущена!'
+            : '❌ Не удалось запустить',
+      ),
+    ),
+  );
 }
 
 // ============================================================
@@ -768,6 +810,14 @@ label: 'DM',
 onTap: _showCreateDMDialog,
 ),
 ),
+
+  // Expanded(
+  //   child: _BottomAction(
+  //     icon: Icons.dynamic_feed_rounded,
+  //     label: 'Live',
+  //     onTap: _testLiveActivity,
+  //   ),
+  // ),
 ],
 );
 },
@@ -776,12 +826,25 @@ onTap: _showCreateDMDialog,
 );
 }
 
+
+
+
+
+
+
+
 // ============================================================
 // RESPONSIVE ACTIONS
 // ============================================================
 
 Widget _buildResponsiveActions() {
 return LayoutBuilder(
+
+
+
+
+
+
 builder: (context, constraints) {
 if (constraints.maxWidth < 330) {
 return Column(
@@ -1418,3 +1481,6 @@ child: child,
 );
 }
 }
+
+
+
