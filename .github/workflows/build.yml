@@ -30,7 +30,9 @@ jobs:
             ninja-build \
             pkg-config \
             libgtk-3-dev \
-            libsecret-1-dev
+            libsecret-1-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev
 
       - name: Install Flutter dependencies
         run: flutter pub get
