@@ -29,6 +29,7 @@ dependencies:
   timeago: ^3.5.0
   image_picker: ^1.0.4
   file_picker: ^11.0.2
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -39,6 +40,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sounds/send.mp3
+    - assets/sounds/receive.mp3
 
 
 flutter_native_splash:
