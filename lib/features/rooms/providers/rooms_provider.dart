@@ -66,7 +66,7 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
     _pollTimer?.cancel();
     _isPolling = true;
 
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       _checkRoomsUpdate();
     });
 
@@ -86,13 +86,14 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
     try {
       final rooms = await _api.getRooms();
 
-      // Проверяем, изменилось ли количество комнат
-      if (rooms.length != state.rooms.length) {
-        print('📨 Обновление списка комнат!');
-        state = state.copyWith(rooms: rooms);
-      }
+      state = state.copyWith(
+        rooms: rooms,
+        error: null,
+      );
+
+      print('🔄 Polling: список комнат обновлён (${rooms.length})');
     } catch (e) {
-      // Молча игнорируем ошибки
+      print('⚠️ Polling комнат: ошибка — $e');
     }
   }
 

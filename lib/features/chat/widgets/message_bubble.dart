@@ -139,7 +139,6 @@ return _MessageBottomSheet(
 child: Column(
 mainAxisSize: MainAxisSize.min,
 children: [
-const _SheetHandle(),
 
 const SizedBox(height: 16),
 
@@ -1832,16 +1831,10 @@ return const Column(
 mainAxisSize:
 MainAxisSize.min,
 children: [
-Icon(
-Icons
-    .broken_image_outlined,
-color:
-Colors.white54,
-size: 64,
-),
+  Icon(Icons.error_outline, color: Colors.white54, size: 64),
 SizedBox(height: 12),
 Text(
-'Не удалось загрузить изображение',
+'Не удалось загрузить этот контент',
 style: TextStyle(
 color:
 Colors.white70,
@@ -1876,7 +1869,7 @@ padding:
 EdgeInsets.all(11),
 child: Icon(
 Icons.close_rounded,
-color: Colors.white,
+color: Colors.yellow,
 size: 24,
 ),
 ),

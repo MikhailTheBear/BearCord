@@ -130,8 +130,8 @@ children: [
 // ==================================================
 
 Container(
-width: 76,
-height: 76,
+width: 82,
+height: 82,
 decoration: BoxDecoration(
 shape: BoxShape.circle,
 color: Colors.white.withValues(alpha: 0.08),
@@ -146,12 +146,17 @@ spreadRadius: 2,
 ),
 ],
 ),
-child: const Center(
-child: Text(
-'🐻',
-style: TextStyle(fontSize: 38),
-),
-),
+  child: Center(
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(60),
+      child: Image.asset(
+        'assets/images/icon-512.png',
+        width: 75,
+        height: 75,
+        fit: BoxFit.cover,
+      ),
+    ),
+  ),
 ),
 
 const SizedBox(height: 18),

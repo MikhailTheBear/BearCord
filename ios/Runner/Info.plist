@@ -70,5 +70,10 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSCameraUsageDescription</key>
+        <string>BearCord использует камеру для отправки фото и видео.</string>
+
+        <key>NSMicrophoneUsageDescription</key>
+        <string>BearCord использует микрофон для записи звука в видео и голосовых сообщениях.</string>
 	</dict>
 </plist>

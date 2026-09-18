@@ -415,14 +415,7 @@ top: false,
 child: Column(
 mainAxisSize: MainAxisSize.min,
 children: [
-Container(
-width: 40,
-height: 4,
-decoration: BoxDecoration(
-color: Colors.white.withValues(alpha: 0.20),
-borderRadius: BorderRadius.circular(4),
-),
-),
+
 
 const SizedBox(height: 18),
 

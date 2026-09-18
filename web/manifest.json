@@ -1,6 +1,6 @@
 {
-    "name": "bearcord",
-    "short_name": "bearcord",
+    "name": "BearCord",
+    "short_name": "BearCord",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

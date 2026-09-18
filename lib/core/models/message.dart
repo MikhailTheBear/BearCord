@@ -259,46 +259,49 @@ createdAt.toIso8601String();
 // ============================================================
 
 class MessageReaction {
-final String reaction;
-final int userId;
-final String nick;
+  final String reaction;
+  final int userId;
+  final String nick;
 
-const MessageReaction({
-required this.reaction,
-required this.userId,
-required this.nick,
-});
+  const MessageReaction({
+    required this.reaction,
+    required this.userId,
+    required this.nick,
+  });
 
-factory MessageReaction.fromJson(
-Map<String, dynamic> json,
-) {
-return MessageReaction(
-reaction: json['reaction']?.toString() ?? '',
-userId: _toInt(json['user_id']),
-nick: json['nick']?.toString() ?? 'Unknown',
-);
-}
+  factory MessageReaction.fromJson(
+      Map<String, dynamic> json,
+      ) {
+    return MessageReaction(
+      reaction:
+      json['reaction']?.toString() ?? '',
+      userId:
+      _toInt(json['user_id']),
+      nick:
+      json['nick']?.toString() ?? 'Unknown',
+    );
+  }
 
-Map<String, dynamic> toJson() {
-return {
-'reaction': reaction,
-'user_id': userId,
-'nick': nick,
-};
-}
+  Map<String, dynamic> toJson() {
+    return {
+      'reaction': reaction,
+      'user_id': userId,
+      'nick': nick,
+    };
+  }
 
-static int _toInt(dynamic value) {
-if (value is int) {
-return value;
-}
+  static int _toInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
 
-if (value is double) {
-return value.toInt();
-}
+    if (value is double) {
+      return value.toInt();
+    }
 
-return int.tryParse(
-value?.toString() ?? '',
-) ??
-0;
-}
+    return int.tryParse(
+      value?.toString() ?? '',
+    ) ??
+        0;
+  }
 }

@@ -183,10 +183,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     ),
                                   ],
                                 ),
-                                child: const Center(
-                                  child: Text(
-                                    '🐻',
-                                    style: TextStyle(fontSize: 42),
+                                child: Center(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(60),
+                                    child: Image.asset(
+                                      'assets/images/icon-512.png',
+                                      width: 75,
+                                      height: 75,
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
                               ),

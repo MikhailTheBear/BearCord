@@ -199,7 +199,7 @@ class _EditProfileScreenState
       ..showSnackBar(
         const SnackBar(
           content: Text(
-            'Выбор аватара добавим следующим шагом 🔥',
+            'Добавится в следующей версии!',
           ),
           behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.all(16),

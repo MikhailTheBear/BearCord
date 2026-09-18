@@ -1,5 +1,5 @@
 import 'dart:ui';
-
+import '../../../main.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -94,6 +94,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _inputController.dispose();
 
     super.dispose();
+  }
+
+
+
+  void _showError(String message) {
+    if (!mounted) {
+      print('⚠️ _showError: widget не mounted');
+      return;
+    }
+
+    print('✅ Показываем SnackBar: $message');
+
+    // Используем отложенный вызов для гарантии
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        print('⚠️ _showError: widget размонтирован после задержки');
+        return;
+      }
+
+      try {
+        // Используем глобальный ключ из main.dart
+        scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
+
+        scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red.withValues(alpha: 0.9),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+
+        print('✅ SnackBar показан успешно');
+      } catch (e) {
+        print('❌ Ошибка при показе SnackBar: $e');
+      }
+    });
   }
 
   // ============================================================
@@ -873,6 +920,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         isOnline,
       ),
 
+
+
       body: Stack(
         children: [
           const _AeroBackground(),
@@ -892,30 +941,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 ),
 
                 MessageInput(
-                  controller:
-                  _inputController,
+                  controller: _inputController,
 
                   // ==================================================
                   // SEND MESSAGE
                   // ==================================================
 
                   onSend: (text) async {
-                    try {
-                      await ref
-                          .read(
-                        chatProvider(
-                          widget.code,
-                        ).notifier,
-                      )
-                          .sendMessage(
-                        text,
-                      );
+                    print('🔵 Отправляем сообщение: "$text"');
 
+                    final result = await ref
+                        .read(chatProvider(widget.code).notifier)
+                        .sendMessage(text);
+
+                    if (result) {
+                      print('✅ Сообщение отправлено');
                       await _playSendSound();
-                    } catch (e) {
-                      debugPrint(
-                        '❌ Send message error: $e',
-                      );
+                    } else {
+                      print('❌ Ошибка при отправке сообщения');
+                      final errorState = ref.read(chatProvider(widget.code));
+                      final error = errorState.error ?? 'Неизвестная ошибка';
+                      _showError('Произошла ошибка: $error');
                     }
                   },
 
@@ -924,22 +970,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   // ==================================================
 
                   onSendGif: (gifUrl) async {
-                    try {
-                      await ref
-                          .read(
-                        chatProvider(
-                          widget.code,
-                        ).notifier,
-                      )
-                          .sendGif(
-                        gifUrl,
-                      );
+                    print('🔵 Отправляем GIF: "$gifUrl"');
 
+                    final result = await ref
+                        .read(chatProvider(widget.code).notifier)
+                        .sendGif(gifUrl);
+
+                    if (result) {
+                      print('✅ GIF отправлен');
                       await _playSendSound();
-                    } catch (e) {
-                      debugPrint(
-                        '❌ Send GIF error: $e',
-                      );
+                    } else {
+                      print('❌ Ошибка при отправке GIF');
+                      final errorState = ref.read(chatProvider(widget.code));
+                      final error = errorState.error ?? 'Неизвестная ошибка';
+                      _showError('Произошла ошибка: $error');
                     }
                   },
 
@@ -948,27 +992,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   // ==================================================
 
                   onSendFile: (filePath) async {
-                    try {
-                      await ref
-                          .read(
-                        chatProvider(
-                          widget.code,
-                        ).notifier,
-                      )
-                          .sendFile(
-                        filePath,
-                      );
+                    print('🔵 Отправляем файл: "$filePath"');
 
+                    final result = await ref
+                        .read(chatProvider(widget.code).notifier)
+                        .sendFile(filePath);
+
+                    if (result) {
+                      print('✅ Файл отправлен');
                       await _playSendSound();
-                    } catch (e) {
-                      debugPrint(
-                        '❌ Send file error: $e',
-                      );
+                    } else {
+                      print('❌ Ошибка при отправке файла');
+                      final errorState = ref.read(chatProvider(widget.code));
+                      final error = errorState.error ?? 'Неизвестная ошибка';
+                      _showError('Произошла ошибка: $error');
                     }
                   },
 
-                  roomCode:
-                  widget.code,
+                  roomCode: widget.code,
                 ),
               ],
             ),
@@ -1291,17 +1332,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               );
             },
 
-            onReaction:
-                (reaction) {
+            onReaction: (reaction) {
+              if (currentUserId == null) {
+                return;
+              }
+
               ref
                   .read(
-                chatProvider(
-                  widget.code,
-                ).notifier,
+                chatProvider(widget.code).notifier,
               )
                   .toggleReaction(
                 message.id,
                 reaction,
+                currentUserId!,
               );
             },
           ),

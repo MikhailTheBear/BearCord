@@ -29,7 +29,7 @@ class AppTheme {
 static const Color primary = Color(0xFFFFD000);
 
 /// Фон приложения.
-static const Color background = Color(0xFF070707);
+static const Color background = Color(0xFF0D0B05);
 
 /// Основная glass-поверхность.
 static const Color surface = Color(0xFF151515);
