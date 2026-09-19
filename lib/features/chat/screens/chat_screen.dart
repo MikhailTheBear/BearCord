@@ -73,6 +73,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     WidgetsBinding.instance.addObserver(this);
 
     _scrollController.addListener(_onScroll);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      ref
+          .read(chatProvider(widget.code).notifier)
+          .markMessagesRead();
+    });
   }
 
   // ============================================================
@@ -269,6 +277,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       message.displayAvatar.isNotEmpty
           ? message.displayAvatar
           : null;
+
+      print(
+        '🖼️ Live Activity avatarURL: "$avatarURL"',
+      );
 
       if (_liveActivityID == null) {
         print(

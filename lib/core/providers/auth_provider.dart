@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
@@ -285,7 +287,74 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  // ==========================================================
+  // UPLOAD AVATAR
+  // ==========================================================
 
+  Future<bool> uploadAvatar(File file) async {
+    state = state.copyWith(
+      isLoading: true,
+      clearError: true,
+    );
+
+    try {
+      // Загружаем изображение через уже существующий
+      // multipart upload в ApiClient.
+      final uploadData = await _api.uploadFile(file);
+
+      var avatarUrl = uploadData['url']?.toString();
+
+      if (avatarUrl == null || avatarUrl.isEmpty) {
+        throw Exception(
+          'Сервер не вернул URL загруженного файла',
+        );
+      }
+
+      if (avatarUrl.startsWith('/')) {
+        avatarUrl = 'https://hub.tailsbear.ru$avatarUrl';
+      }
+
+      print('🖼️ AVATAR URL: $avatarUrl');
+
+      final currentUser = state.user;
+
+      if (currentUser == null) {
+        throw Exception(
+          'Пользователь не авторизован',
+        );
+      }
+
+      // Сохраняем полученный URL в профиле пользователя.
+      final user = await _api.updateProfile(
+        login: currentUser.login,
+        nick: currentUser.nick,
+        avatar: avatarUrl,
+      );
+
+      state = state.copyWith(
+        user: user,
+        isLoading: false,
+        clearError: true,
+      );
+
+      print(
+        '✅ Аватар обновлён: ${user.avatar}',
+      );
+
+      return true;
+    } catch (e) {
+      print(
+        '❌ Ошибка загрузки аватара: $e',
+      );
+
+      state = state.copyWith(
+        isLoading: false,
+        error: _formatError(e),
+      );
+
+      return false;
+    }
+  }
 
   // ==========================================================
   // ERROR FORMAT

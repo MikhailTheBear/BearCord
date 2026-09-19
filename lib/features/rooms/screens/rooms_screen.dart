@@ -1,7 +1,7 @@
 // lib/features/rooms/screens/rooms_screen.dart
 
 import 'dart:ui';
-import '../../../core/api/websocket_service.dart';
+import '../../../core/services/websocket_service.dart';
 import 'package:bearcord/features/profile/screens/edit_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,24 +40,80 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
 
       final notifier = ref.read(roomsProvider.notifier);
 
-      // Первичная загрузка — может показать экран загрузки
+      // Первичная загрузка комнат.
       notifier.loadRooms();
 
-      // После входа на экран запускаем polling
-      notifier.startPolling();
+      // WebSocket.
+      final user = ref.read(authProvider).user;
 
-      _webSocketService.connect(
-        userId: 1,
-        onEvent: (event) {
-          switch (event['type']) {
-            case 'new_message':
-            case 'room_added':
-            case 'room_removed':
-              notifier.loadRooms();
-              break;
-          }
+      if (user != null) {
+        _webSocketService.connect(
+          userId: user.id,
+          onEvent: (event) {
+            if (!mounted) return;
+
+            switch (event['type']) {
+              case 'rooms_changed':
+                print('🔄 WebSocket: комнаты изменились');
+
+                // Не показываем fullscreen loading при realtime-обновлении.
+                notifier.loadRooms(showLoading: false);
+                break;
+            }
+          },
+          onConnectionLost: () {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: AppTheme.error,
+                duration: const Duration(seconds: 15),
+                content: Row(
+                  children: [
+                    const Icon(
+                      Icons.wifi_off_rounded,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text('Соединение с BearCord потеряно'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+
+          onConnectionRestored: () {
+          if (!context.mounted) return;
+
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+              content: Row(
+                children: [
+                  Icon(
+                    Icons.wifi_rounded,
+                    color: Colors.white,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Соединение с BearCord восстановлено',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         },
-      );
+
+        );
+      } else {
+        print('⚠️ WebSocket: пользователь не найден');
+      }
 
       UpdateService.checkForUpdate(context);
     });
@@ -65,8 +121,8 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
 
   @override
   void dispose() {
-    ref.read(roomsProvider.notifier).stopPolling();
     _webSocketService.dispose();
+
     _roomCodeController.dispose();
     _dmTargetController.dispose();
 
@@ -475,9 +531,22 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
                       return;
                     }
 
-                    await ref
+                    final roomCode = await ref
                         .read(roomsProvider.notifier)
                         .createDMRoom(userId);
+
+                    if (roomCode == null) {
+                      if (!mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Не удалось создать личный чат'),
+                          backgroundColor: AppTheme.error,
+                        ),
+                      );
+
+                      return;
+                    }
 
                     _dmTargetController.clear();
 
@@ -485,12 +554,10 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
 
                     Navigator.pop(dialogContext);
 
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(
-                      const SnackBar(
-                        content: Text('Личный чат создан'),
-                        backgroundColor: AppTheme.success,
-                      ),
+                    Navigator.pushNamed(
+                      context,
+                      '/chat',
+                      arguments: roomCode,
                     );
                   } catch (e) {
                     if (!mounted) return;
@@ -860,7 +927,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
               Expanded(
                 child: _BottomAction(
                   icon: Icons.chat_bubble_rounded,
-                  label: 'DM',
+                  label: 'ЛС',
                   onTap: _showCreateDMDialog,
                 ),
               ),
@@ -923,7 +990,7 @@ class _RoomsScreenState extends ConsumerState<RoomsScreen> {
             Expanded(
               child: _LargeAction(
                 icon: Icons.chat_bubble_outline_rounded,
-                title: 'DM',
+                title: 'ЛС',
                 onTap: _showCreateDMDialog,
               ),
             ),

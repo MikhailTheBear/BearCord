@@ -1,8 +1,9 @@
 // lib/features/rooms/providers/rooms_provider.dart
-import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/models/room.dart';
+
 import '../../../core/api/api_client.dart';
+import '../../../core/models/room.dart';
 
 final roomsProvider = StateNotifierProvider<RoomsNotifier, RoomsState>((ref) {
   return RoomsNotifier();
@@ -23,11 +24,12 @@ class RoomsState {
     List<Room>? rooms,
     bool? isLoading,
     String? error,
+    bool clearError = false,
   }) {
     return RoomsState(
       rooms: rooms ?? this.rooms,
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      error: clearError ? null : (error ?? this.error),
     );
   }
 }
@@ -36,71 +38,110 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
   RoomsNotifier() : super(RoomsState());
 
   final ApiClient _api = ApiClient();
-  Timer? _pollTimer;
-  bool _isPolling = false;
 
-  Future<void> loadRooms() async {
+  // ----------------------------------------------------------
+  // Защита от параллельных loadRooms()
+  // ----------------------------------------------------------
+
+  bool _roomsLoadRunning = false;
+  bool _roomsReloadRequested = false;
+  bool _roomsShowLoadingRequested = false;
+
+  // ----------------------------------------------------------
+  // LOAD ROOMS
+  // ----------------------------------------------------------
+
+  Future<void> loadRooms({
+    bool showLoading = true,
+  }) async {
+    if (!mounted) return;
+
+    // Если загрузка уже идёт — не запускаем второй параллельный
+    // запрос. Просто говорим, что после текущего нужен ещё один.
+    if (_roomsLoadRunning) {
+      _roomsReloadRequested = true;
+
+      if (showLoading) {
+        _roomsShowLoadingRequested = true;
+      }
+
+      print('🔄 loadRooms: запрос уже идёт, запланировано обновление');
+      return;
+    }
+
+    _roomsLoadRunning = true;
+
+    bool currentShowLoading = showLoading;
+
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      do {
+        _roomsReloadRequested = false;
 
-      final rooms = await _api.getRooms();
+        final bool shouldShowLoading =
+            currentShowLoading || _roomsShowLoadingRequested;
 
-      state = state.copyWith(
-        rooms: rooms,
-        isLoading: false,
+        _roomsShowLoadingRequested = false;
+
+        if (shouldShowLoading) {
+          state = state.copyWith(
+            isLoading: true,
+            clearError: true,
+          );
+        }
+
+        try {
+          final rooms = await _api.getRooms();
+
+          if (!mounted) return;
+
+          state = state.copyWith(
+            rooms: rooms,
+            isLoading: false,
+            clearError: true,
+          );
+
+          print(
+            '✅ loadRooms: загружено ${rooms.length} комнат',
+          );
+        } catch (e) {
+          if (!mounted) return;
+
+          state = state.copyWith(
+            error: e.toString(),
+            isLoading: false,
+          );
+
+          print('❌ loadRooms: $e');
+        }
+
+        // После первого запроса дальнейшие запросы,
+        // вызванные WebSocket-событиями, не показывают
+        // fullscreen loading.
+        currentShowLoading = false;
+
+      } while (
+      _roomsReloadRequested &&
+          mounted
       );
 
-      print('✅ loadRooms: загружено ${rooms.length} комнат');
-    } catch (e) {
-      state = state.copyWith(
-        error: e.toString(),
-        isLoading: false,
-      );
+    } finally {
+      _roomsLoadRunning = false;
     }
   }
 
-  // ============================================
-  // ПОЛЛИНГ ДЛЯ СПИСКА КОМНАТ
-  // ============================================
-  void startPolling() {
-    _pollTimer?.cancel();
-    _isPolling = true;
-
-    _pollTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
-      _checkRoomsUpdate();
-    });
-
-    print('🔄 Polling комнат запущен');
-  }
-
-  void stopPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-    _isPolling = false;
-    print('🔄 Polling комнат остановлен');
-  }
-
-  Future<void> _checkRoomsUpdate() async {
-    if (!_isPolling) return;
-
-    try {
-      final rooms = await _api.getRooms();
-
-      state = state.copyWith(
-        rooms: rooms,
-        error: null,
-      );
-
-      print('🔄 Polling: список комнат обновлён (${rooms.length})');
-    } catch (e) {
-      print('⚠️ Polling комнат: ошибка — $e');
-    }
-  }
+  // ----------------------------------------------------------
+  // CREATE GROUP ROOM
+  // ----------------------------------------------------------
 
   Future<void> createRoom(String code) async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        clearError: true,
+      );
+
       await _api.createGroupRoom(code);
+
       await loadRooms();
     } catch (e) {
       state = state.copyWith(
@@ -110,45 +151,78 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
     }
   }
 
+  // ----------------------------------------------------------
+  // GET USER ID BY LOGIN
+  // ----------------------------------------------------------
+
   Future<int?> getUserIdByLogin(String login) async {
     try {
-      if (login.isEmpty) return null;
+      if (login.isEmpty) {
+        return null;
+      }
+
       return await _api.getUserIdByLogin(login);
     } catch (e) {
-      print('❌ getUserIdByLogin error: $e');
+      print(
+        '❌ getUserIdByLogin error: $e',
+      );
+
       return null;
     }
   }
 
-  Future<void> createDMRoom(int userId) async {
+  // ----------------------------------------------------------
+  // CREATE DM
+  // ----------------------------------------------------------
+
+  Future<String?> createDMRoom(int userId) async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        clearError: true,
+      );
 
       if (userId <= 0) {
         state = state.copyWith(
           error: 'Неверный ID пользователя',
           isLoading: false,
         );
-        return;
+        return null;
       }
 
-      await _api.createDMRoom(userId);
-      await loadRooms();
+      final code = await _api.createDMRoom(userId);
 
+      // Синхронизируем список комнат после создания.
+      await loadRooms(showLoading: false);
+
+      return code;
     } catch (e) {
       print('❌ createDMRoom error: $e');
-      await loadRooms();
+
       state = state.copyWith(
         error: e.toString(),
         isLoading: false,
       );
+
+      await loadRooms(showLoading: false);
+
+      return null;
     }
   }
+
+  // ----------------------------------------------------------
+  // JOIN ROOM
+  // ----------------------------------------------------------
 
   Future<void> joinRoom(String code) async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        clearError: true,
+      );
+
       await _api.joinRoom(code);
+
       await loadRooms();
     } catch (e) {
       state = state.copyWith(
@@ -158,42 +232,75 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
     }
   }
 
+  // ----------------------------------------------------------
+  // LEAVE ROOM
+  // ----------------------------------------------------------
+
   Future<void> leaveRoom(String code) async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        clearError: true,
+      );
+
       await _api.leaveRoom(code);
 
-      final newRooms = state.rooms.where((r) => r.code != code).toList();
+      final newRooms = state.rooms
+          .where((room) => room.code != code)
+          .toList();
+
       state = state.copyWith(
         rooms: newRooms,
         isLoading: false,
+        clearError: true,
       );
 
-      print('✅ Выход из комнаты $code успешен');
+      print(
+        '✅ Выход из комнаты $code успешен',
+      );
     } catch (e) {
-      print('❌ Ошибка выхода из комнаты: $e');
+      print(
+        '❌ Ошибка выхода из комнаты: $e',
+      );
+
       state = state.copyWith(
         error: e.toString(),
         isLoading: false,
       );
     }
   }
+
+  // ----------------------------------------------------------
+  // DELETE ROOM
+  // ----------------------------------------------------------
 
   Future<void> deleteRoom(String code) async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        clearError: true,
+      );
 
       await _api.deleteRoom(code);
 
-      final newRooms = state.rooms.where((r) => r.code != code).toList();
+      final newRooms = state.rooms
+          .where((room) => room.code != code)
+          .toList();
+
       state = state.copyWith(
         rooms: newRooms,
         isLoading: false,
+        clearError: true,
       );
 
-      print('✅ Комната $code удалена');
+      print(
+        '✅ Комната $code удалена',
+      );
     } catch (e) {
-      print('❌ Ошибка удаления комнаты: $e');
+      print(
+        '❌ Ошибка удаления комнаты: $e',
+      );
+
       state = state.copyWith(
         error: e.toString(),
         isLoading: false,
@@ -201,9 +308,12 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
     }
   }
 
+  // ----------------------------------------------------------
+  // DISPOSE
+  // ----------------------------------------------------------
+
   @override
   void dispose() {
-    stopPolling();
     super.dispose();
   }
 }

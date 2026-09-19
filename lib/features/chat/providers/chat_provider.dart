@@ -109,6 +109,26 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _pollingOperationId++;
   }
 
+
+// ============================================================
+// MARK CHAT AS READ
+// ============================================================
+
+  Future<void> markMessagesRead() async {
+    if (!_isAlive || roomCode.isEmpty) {
+      return;
+    }
+
+    try {
+      await _api.markMessagesRead(roomCode);
+
+      print('👁️ CHAT MARKED AS READ: $roomCode');
+    } catch (e) {
+      print('❌ MARK READ ERROR: $e');
+    }
+  }
+
+
   // ============================================================
   // LOAD ROOM + MESSAGES
   // ============================================================
@@ -153,6 +173,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
         isLoading: false,
         clearError: true,
       );
+
+      await markMessagesRead();
+
     } catch (e) {
       if (!_canUpdate(operationId)) {
         return;

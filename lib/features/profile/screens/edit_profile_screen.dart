@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+
 import 'password_screen.dart';
 import '../../../config/app_theme.dart';
 import '../../../core/providers/auth_provider.dart';
@@ -15,12 +19,14 @@ class EditProfileScreen extends ConsumerStatefulWidget {
       _EditProfileScreenState();
 }
 
-class _EditProfileScreenState
-    extends ConsumerState<EditProfileScreen> {
+class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late final TextEditingController _nicknameController;
   late final TextEditingController _loginController;
 
+  final ImagePicker _imagePicker = ImagePicker();
+
   bool _saving = false;
+  bool _uploadingAvatar = false;
 
   @override
   void initState() {
@@ -49,7 +55,7 @@ class _EditProfileScreenState
   // ============================================================
 
   Future<void> _saveProfile() async {
-    if (_saving) return;
+    if (_saving || _uploadingAvatar) return;
 
     final nickname = _nicknameController.text.trim();
     final login = _loginController.text.trim();
@@ -82,7 +88,6 @@ class _EditProfileScreenState
       return;
     }
 
-    // Логин должен состоять только из разрешённых символов.
     final loginRegex = RegExp(
       r'^[a-zA-Z0-9_.-]+$',
     );
@@ -191,20 +196,70 @@ class _EditProfileScreenState
   // AVATAR
   // ============================================================
 
-  void _changeAvatar() {
-    if (_saving) return;
+  Future<void> _changeAvatar() async {
+    if (_saving || _uploadingAvatar) return;
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Добавится в следующей версии!',
+    try {
+      final XFile? pickedFile =
+      await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+
+      if (pickedFile == null) return;
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingAvatar = true;
+      });
+
+      final file = File(pickedFile.path);
+
+      final success =
+      await ref.read(authProvider.notifier).uploadAvatar(file);
+
+      if (!mounted) return;
+
+      if (!success) {
+        final error = ref.read(authProvider).error;
+
+        _showError(
+          error ?? 'Не удалось изменить аватар',
+        );
+
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Аватар успешно изменён',
+            ),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.all(16),
           ),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.all(16),
+        );
+    } catch (e) {
+      if (!mounted) return;
+
+      _showError(
+        e.toString().replaceFirst(
+          'Exception: ',
+          '',
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploadingAvatar = false;
+        });
+      }
+    }
   }
 
   // ============================================================
@@ -214,6 +269,8 @@ class _EditProfileScreenState
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
+
+    final avatarBusy = _saving || _uploadingAvatar;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -228,7 +285,7 @@ class _EditProfileScreenState
         centerTitle: false,
 
         leading: IconButton(
-          onPressed: _saving
+          onPressed: avatarBusy
               ? null
               : () {
             Navigator.pop(context);
@@ -271,8 +328,9 @@ class _EditProfileScreenState
 
               Center(
                 child: GestureDetector(
-                  onTap:
-                  _saving ? null : _changeAvatar,
+                  onTap: avatarBusy
+                      ? null
+                      : _changeAvatar,
                   child: Stack(
                     children: [
                       UserAvatar(
@@ -289,19 +347,24 @@ class _EditProfileScreenState
                           width: 34,
                           height: 34,
                           decoration: BoxDecoration(
-                            color:
-                            AppTheme.primary,
-                            shape:
-                            BoxShape.circle,
+                            color: AppTheme.primary,
+                            shape: BoxShape.circle,
                             border: Border.all(
-                              color:
-                              AppTheme.background,
+                              color: AppTheme.background,
                               width: 3,
                             ),
                           ),
-                          child: const Icon(
-                            Icons
-                                .camera_alt_rounded,
+                          child: _uploadingAvatar
+                              ? const Padding(
+                            padding: EdgeInsets.all(8),
+                            child:
+                            CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: Colors.black,
+                            ),
+                          )
+                              : const Icon(
+                            Icons.camera_alt_rounded,
                             color: Colors.black,
                             size: 17,
                           ),
@@ -314,10 +377,12 @@ class _EditProfileScreenState
 
               const SizedBox(height: 12),
 
-              const Center(
+              Center(
                 child: Text(
-                  'Изменить фотографию',
-                  style: TextStyle(
+                  _uploadingAvatar
+                      ? 'Загрузка фотографии...'
+                      : 'Изменить фотографию',
+                  style: const TextStyle(
                     color: AppTheme.primary,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -338,14 +403,11 @@ class _EditProfileScreenState
               const SizedBox(height: 8),
 
               _buildTextField(
-                controller:
-                _nicknameController,
+                controller: _nicknameController,
                 hint: 'Введите имя',
-                icon:
-                Icons.person_outline_rounded,
+                icon: Icons.person_outline_rounded,
                 maxLength: 32,
-                keyboardType:
-                TextInputType.name,
+                keyboardType: TextInputType.name,
               ),
 
               const SizedBox(height: 22),
@@ -359,14 +421,11 @@ class _EditProfileScreenState
               const SizedBox(height: 8),
 
               _buildTextField(
-                controller:
-                _loginController,
+                controller: _loginController,
                 hint: 'Введите логин',
-                icon:
-                Icons.alternate_email_rounded,
+                icon: Icons.alternate_email_rounded,
                 maxLength: 32,
-                keyboardType:
-                TextInputType.text,
+                keyboardType: TextInputType.text,
                 capitalization:
                 TextCapitalization.none,
               ),
@@ -404,8 +463,7 @@ class _EditProfileScreenState
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: AppTheme.primary
-                          .withValues(
+                      color: AppTheme.primary.withValues(
                         alpha: 0.12,
                       ),
                       shape: BoxShape.circle,
@@ -420,37 +478,33 @@ class _EditProfileScreenState
                   title: const Text(
                     'Пароль',
                     style: TextStyle(
-                      color:
-                      AppTheme.textPrimary,
+                      color: AppTheme.textPrimary,
                       fontSize: 15,
-                      fontWeight:
-                      FontWeight.w700,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
 
                   subtitle: const Text(
                     'Изменить пароль аккаунта',
                     style: TextStyle(
-                      color:
-                      AppTheme.textMuted,
+                      color: AppTheme.textMuted,
                       fontSize: 12,
                     ),
                   ),
 
                   trailing: const Icon(
-                    Icons
-                        .chevron_right_rounded,
-                    color:
-                    AppTheme.textMuted,
+                    Icons.chevron_right_rounded,
+                    color: AppTheme.textMuted,
                   ),
 
-                  onTap: _saving
+                  onTap: avatarBusy
                       ? null
                       : () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const PasswordScreen(),
+                        builder: (_) =>
+                        const PasswordScreen(),
                       ),
                     );
                   },
@@ -466,32 +520,24 @@ class _EditProfileScreenState
               SizedBox(
                 height: 54,
                 child: ElevatedButton(
-                  onPressed:
-                  _saving
+                  onPressed: avatarBusy
                       ? null
                       : _saveProfile,
-
-                  style:
-                  ElevatedButton.styleFrom(
+                  style: ElevatedButton.styleFrom(
                     backgroundColor:
                     AppTheme.primary,
-                    foregroundColor:
-                    Colors.black,
+                    foregroundColor: Colors.black,
                     disabledBackgroundColor:
-                    AppTheme.primary
-                        .withValues(
+                    AppTheme.primary.withValues(
                       alpha: 0.35,
                     ),
                     elevation: 0,
                     shape:
                     RoundedRectangleBorder(
                       borderRadius:
-                      BorderRadius.circular(
-                        17,
-                      ),
+                      BorderRadius.circular(17),
                     ),
                   ),
-
                   child: _saving
                       ? const SizedBox(
                     width: 22,
@@ -499,16 +545,14 @@ class _EditProfileScreenState
                     child:
                     CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      color:
-                      Colors.black,
+                      color: Colors.black,
                     ),
                   )
                       : const Text(
                     'Сохранить изменения',
                     style: TextStyle(
                       fontSize: 15,
-                      fontWeight:
-                      FontWeight.w800,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -532,8 +576,7 @@ class _EditProfileScreenState
           content: Text(
             'Изменение пароля сделаем отдельным экраном 🔐',
           ),
-          behavior:
-          SnackBarBehavior.floating,
+          behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.all(16),
         ),
       );
@@ -559,8 +602,7 @@ class _EditProfileScreenState
   // ============================================================
 
   Widget _buildTextField({
-    required TextEditingController
-    controller,
+    required TextEditingController controller,
     required String hint,
     required IconData icon,
     required int maxLength,
@@ -570,32 +612,23 @@ class _EditProfileScreenState
   }) {
     return TextField(
       controller: controller,
-
       maxLength: maxLength,
-
       keyboardType: keyboardType,
-
       textCapitalization: capitalization,
-
-      enabled: !_saving,
-
+      enabled: !_saving && !_uploadingAvatar,
       style: const TextStyle(
         color: AppTheme.textPrimary,
         fontSize: 15,
       ),
-
       decoration: InputDecoration(
         counterStyle: const TextStyle(
           color: AppTheme.textMuted,
           fontSize: 10,
         ),
-
         hintText: hint,
-
         hintStyle: const TextStyle(
           color: AppTheme.textMuted,
         ),
-
         prefixIcon: Padding(
           padding: const EdgeInsets.only(
             left: 13,
@@ -607,43 +640,33 @@ class _EditProfileScreenState
             size: 21,
           ),
         ),
-
         prefixIconConstraints:
         const BoxConstraints(
           minWidth: 48,
           minHeight: 48,
         ),
-
         filled: true,
-
         fillColor: AppTheme.surface,
-
         contentPadding:
         const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 15,
         ),
-
         border: OutlineInputBorder(
           borderRadius:
           BorderRadius.circular(17),
           borderSide: BorderSide.none,
         ),
-
-        enabledBorder:
-        OutlineInputBorder(
+        enabledBorder: OutlineInputBorder(
           borderRadius:
           BorderRadius.circular(17),
           borderSide: BorderSide.none,
         ),
-
-        focusedBorder:
-        OutlineInputBorder(
+        focusedBorder: OutlineInputBorder(
           borderRadius:
           BorderRadius.circular(17),
           borderSide: BorderSide(
-            color:
-            AppTheme.primary.withValues(
+            color: AppTheme.primary.withValues(
               alpha: 0.55,
             ),
             width: 1.3,

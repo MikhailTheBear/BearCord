@@ -409,22 +409,26 @@ body: {
 );
 }
 
-Future<void> createDMRoom(
-int userId,
-) async {
-final uri = Uri.parse(
-'$baseUrl?action=rooms',
-);
+  Future<String> createDMRoom(int userId) async {
+    final uri = Uri.parse('$baseUrl?action=rooms');
 
-await _request(
-'POST',
-uri,
-body: {
-'type': 'dm',
-'user_id': userId,
-},
-);
-}
+    final data = await _request(
+      'POST',
+      uri,
+      body: {
+        'type': 'dm',
+        'user_id': userId,
+      },
+    );
+
+    final code = data['code']?.toString();
+
+    if (code == null || code.isEmpty) {
+      throw Exception('Сервер не вернул код личного чата');
+    }
+
+    return code;
+  }
 
 Future<void> joinRoom(
 String code,
@@ -505,6 +509,21 @@ json as Map<String, dynamic>,
 )
     .toList();
 }
+
+
+  Future<void> markMessagesRead(String code) async {
+    final uri = Uri.parse(
+      '$baseUrl?action=messages'
+          '&mark_read=1'
+          '&code=${Uri.encodeQueryComponent(code)}',
+    );
+
+    await _request(
+      'PUT',
+      uri,
+    );
+  }
+
 
 Future<int> sendMessage(
 String code,

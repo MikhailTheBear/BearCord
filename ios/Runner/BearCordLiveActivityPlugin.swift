@@ -1,10 +1,19 @@
+
 import Flutter
 import ActivityKit
 import Foundation
+import CryptoKit
 
 final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
 
     private var channel: FlutterMethodChannel?
+
+    // ============================================================
+    // APP GROUP
+    // ============================================================
+
+    private let appGroupID =
+        "group.tailsbear.bearcord"
 
     // ============================================================
     // REGISTER
@@ -19,7 +28,8 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger()
         )
 
-        let instance = BearCordLiveActivityPlugin()
+        let instance =
+            BearCordLiveActivityPlugin()
 
         instance.channel = channel
 
@@ -114,6 +124,192 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
     }
 
     // ============================================================
+    // AVATAR CACHE
+    // ============================================================
+
+    private func avatarCacheURL(
+        for avatarURL: String
+    ) -> URL? {
+
+        guard
+            let container =
+                FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier:
+                        appGroupID
+                )
+        else {
+
+            print(
+                "❌ App Group container not found: \(appGroupID)"
+            )
+
+            return nil
+        }
+
+        let avatarsDirectory =
+            container.appendingPathComponent(
+                "BearCordAvatars",
+                isDirectory: true
+            )
+
+        do {
+
+            try FileManager.default.createDirectory(
+                at: avatarsDirectory,
+                withIntermediateDirectories: true
+            )
+
+        } catch {
+
+            print(
+                "❌ Avatar directory error: \(error)"
+            )
+
+            return nil
+        }
+
+        let hash =
+            SHA256.hash(
+                data:
+                    Data(
+                        avatarURL.utf8
+                    )
+            )
+
+        let hashString =
+            hash
+                .map {
+                    String(
+                        format: "%02x",
+                        $0
+                    )
+                }
+                .joined()
+
+        let pathExtension =
+            URL(
+                string: avatarURL
+            )?
+            .pathExtension
+            .lowercased()
+
+        let ext =
+            pathExtension == "png"
+                ? "png"
+                : "jpg"
+
+        return avatarsDirectory
+            .appendingPathComponent(
+                "\(hashString).\(ext)"
+            )
+    }
+
+    private func cacheAvatar(
+        avatarURL: String?
+    ) async {
+
+        guard
+            let avatarURL,
+            !avatarURL.isEmpty,
+            let remoteURL =
+                URL(string: avatarURL)
+        else {
+
+            return
+        }
+
+        guard
+            let localURL =
+                avatarCacheURL(
+                    for: avatarURL
+                )
+        else {
+
+            return
+        }
+
+        // Уже скачан
+        if FileManager.default.fileExists(
+            atPath: localURL.path
+        ) {
+
+            print(
+                "🖼️ Avatar уже в кеше:"
+            )
+
+            print(
+                "   \(localURL.path)"
+            )
+
+            return
+        }
+
+        do {
+
+            print(
+                "🖼️ Скачиваем avatar:"
+            )
+
+            print(
+                "   \(avatarURL)"
+            )
+
+            let request =
+                URLRequest(
+                    url: remoteURL,
+                    cachePolicy:
+                        .reloadIgnoringLocalCacheData,
+                    timeoutInterval:
+                        15
+                )
+
+            let (
+                data,
+                response
+            ) =
+                try await URLSession.shared.data(
+                    for: request
+                )
+
+            if let httpResponse =
+                response as? HTTPURLResponse {
+
+                guard
+                    200...299
+                        ~= httpResponse.statusCode
+                else {
+
+                    print(
+                        "❌ Avatar HTTP error: "
+                        + "\(httpResponse.statusCode)"
+                    )
+
+                    return
+                }
+            }
+
+            try data.write(
+                to: localURL,
+                options: .atomic
+            )
+
+            print(
+                "✅ Avatar сохранён:"
+            )
+
+            print(
+                "   \(localURL.path)"
+            )
+
+        } catch {
+
+            print(
+                "❌ Avatar download error: \(error)"
+            )
+        }
+    }
+
+    // ============================================================
     // START
     // ============================================================
 
@@ -123,14 +319,16 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
         result: @escaping FlutterResult
     ) {
 
-        guard let args =
-            call.arguments as? [String: Any]
+        guard
+            let args =
+                call.arguments as? [String: Any]
         else {
 
             result(
                 FlutterError(
                     code: "INVALID_ARGUMENTS",
-                    message: "Invalid arguments",
+                    message:
+                        "Invalid arguments",
                     details: nil
                 )
             )
@@ -157,11 +355,30 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
         let avatarURL =
             args["avatarURL"] as? String
 
-        print("🏝️ BearCord Live Activity START")
-        print("   chatID: \(chatID)")
-        print("   chatName: \(chatName)")
-        print("   senderName: \(senderName)")
-        print("   message: \(message)")
+        print(
+            "🏝️ BearCord Live Activity START"
+        )
+
+        print(
+            "   chatID: \(chatID)"
+        )
+
+        print(
+            "   chatName: \(chatName)"
+        )
+
+        print(
+            "   senderName: \(senderName)"
+        )
+
+        print(
+            "   message: \(message)"
+        )
+
+        print(
+            "   avatarURL: "
+                + "\(avatarURL ?? "nil")"
+        )
 
         guard ActivityAuthorizationInfo()
             .areActivitiesEnabled
@@ -179,65 +396,66 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        // ========================================================
-        // ATTRIBUTES
-        // ========================================================
+        Task {
 
-        let attributes =
-            BearCordLiveActivityAttributes(
-                chatID: chatID,
-                chatName: chatName
-            )
-
-        // ========================================================
-        // CONTENT STATE
-        // ========================================================
-
-        let state =
-            BearCordLiveActivityAttributes.ContentState(
-                senderName: senderName,
-                message: message,
+            // Сначала сохраняем аватар,
+            // чтобы Widget Extension уже могла
+            // прочитать его локально.
+            await cacheAvatar(
                 avatarURL: avatarURL
             )
 
-        // ========================================================
-        // START
-        // ========================================================
-
-        do {
-
-            let activity =
-                try Activity<
-                    BearCordLiveActivityAttributes
-                >.request(
-                    attributes: attributes,
-                    content: ActivityContent(
-                        state: state,
-                        staleDate: nil
-                    ),
-                    pushType: nil
+            let attributes =
+                BearCordLiveActivityAttributes(
+                    chatID: chatID,
+                    chatName: chatName
                 )
 
-            print(
-                "🏝️ Live Activity started: \(activity.id)"
-            )
-
-            result(activity.id)
-
-        } catch {
-
-            print(
-                "❌ Live Activity start error: \(error)"
-            )
-
-            result(
-                FlutterError(
-                    code: "START_FAILED",
-                    message:
-                        error.localizedDescription,
-                    details: nil
+            let state =
+                BearCordLiveActivityAttributes.ContentState(
+                    senderName: senderName,
+                    message: message,
+                    avatarURL: avatarURL
                 )
-            )
+
+            do {
+
+                let activity =
+                    try Activity<
+                        BearCordLiveActivityAttributes
+                    >.request(
+                        attributes: attributes,
+                        content:
+                            ActivityContent(
+                                state: state,
+                                staleDate: nil
+                            ),
+                        pushType: nil
+                    )
+
+                print(
+                    "🏝️ Live Activity started: "
+                        + "\(activity.id)"
+                )
+
+                result(activity.id)
+
+            } catch {
+
+                print(
+                    "❌ Live Activity start error: "
+                        + "\(error)"
+                )
+
+                result(
+                    FlutterError(
+                        code: "START_FAILED",
+                        message:
+                            error.localizedDescription,
+                        details: nil
+                    )
+                )
+            }
         }
     }
 
@@ -251,14 +469,16 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
         result: @escaping FlutterResult
     ) {
 
-        guard let args =
-            call.arguments as? [String: Any]
+        guard
+            let args =
+                call.arguments as? [String: Any]
         else {
 
             result(
                 FlutterError(
                     code: "INVALID_ARGUMENTS",
-                    message: "Invalid arguments",
+                    message:
+                        "Invalid arguments",
                     details: nil
                 )
             )
@@ -266,8 +486,9 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        guard let activityID =
-            args["activityID"] as? String
+        guard
+            let activityID =
+                args["activityID"] as? String
         else {
 
             result(
@@ -309,14 +530,20 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
             "   message: \(message)"
         )
 
-        guard let activity =
-            Activity<
-                BearCordLiveActivityAttributes
-            >.activities.first(
-                where: {
-                    $0.id == activityID
-                }
-            )
+        print(
+            "   avatarURL: "
+                + "\(avatarURL ?? "nil")"
+        )
+
+        guard
+            let activity =
+                Activity<
+                    BearCordLiveActivityAttributes
+                >.activities.first(
+                    where: {
+                        $0.id == activityID
+                    }
+                )
         else {
 
             print(
@@ -335,14 +562,18 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        let state =
-            BearCordLiveActivityAttributes.ContentState(
-                senderName: senderName,
-                message: message,
+        Task {
+
+            await cacheAvatar(
                 avatarURL: avatarURL
             )
 
-        Task {
+            let state =
+                BearCordLiveActivityAttributes.ContentState(
+                    senderName: senderName,
+                    message: message,
+                    avatarURL: avatarURL
+                )
 
             await activity.update(
                 ActivityContent(
@@ -380,7 +611,8 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
 
                 await activity.end(
                     nil,
-                    dismissalPolicy: .immediate
+                    dismissalPolicy:
+                        .immediate
                 )
             }
 
@@ -392,3 +624,4 @@ final class BearCordLiveActivityPlugin: NSObject, FlutterPlugin {
         }
     }
 }
+

@@ -1,3 +1,4 @@
+
 //
 //  BearCordLiveActivityLiveActivity.swift
 //  BearCordLiveActivity
@@ -6,50 +7,260 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import UIKit
+import CryptoKit
+
+// =====================================================
+// AVATAR VIEW
+// =====================================================
+
+struct BearCordAvatarView: View {
+
+    let avatarURL: String?
+    let size: CGFloat
+
+    private let appGroupID =
+        "group.tailsbear.bearcord"
+
+    // =====================================================
+    // LOCAL AVATAR URL
+    // =====================================================
+
+    private func avatarFileURL() -> URL? {
+
+        guard
+            let avatarURL,
+            !avatarURL.isEmpty
+        else {
+
+            print(
+                "❌ Widget avatarURL пустой"
+            )
+
+            return nil
+        }
+
+        guard
+            let container =
+                FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier:
+                        appGroupID
+                )
+        else {
+
+            print(
+                "❌ Widget App Group container не найден"
+            )
+
+            print(
+                "   App Group: \(appGroupID)"
+            )
+
+            return nil
+        }
+
+        let hash =
+            SHA256.hash(
+                data:
+                    Data(
+                        avatarURL.utf8
+                    )
+            )
+
+        let hashString =
+            hash
+                .map {
+                    String(
+                        format: "%02x",
+                        $0
+                    )
+                }
+                .joined()
+
+        let pathExtension =
+            URL(
+                string: avatarURL
+            )?
+            .pathExtension
+            .lowercased()
+
+        let ext =
+            pathExtension == "png"
+                ? "png"
+                : "jpg"
+
+        let directory =
+            container
+                .appendingPathComponent(
+                    "BearCordAvatars",
+                    isDirectory: true
+                )
+
+        let fileURL =
+            directory
+                .appendingPathComponent(
+                    "\(hashString).\(ext)"
+                )
+
+        return fileURL
+    }
+
+    // =====================================================
+    // LOAD AVATAR
+    // =====================================================
+
+    private func loadAvatarImage() -> UIImage? {
+
+        guard
+            let localURL = avatarFileURL()
+        else {
+
+            return nil
+        }
+
+        print(
+            "🖼️ Widget avatar path:"
+        )
+
+        print(
+            "   \(localURL.path)"
+        )
+
+        let exists =
+            FileManager.default.fileExists(
+                atPath:
+                    localURL.path
+            )
+
+        print(
+            "🖼️ Widget avatar exists: \(exists)"
+        )
+
+        guard exists else {
+
+            print(
+                "❌ Widget файл аватара НЕ найден"
+            )
+
+            return nil
+        }
+
+        guard
+            let image =
+                UIImage(
+                    contentsOfFile:
+                        localURL.path
+                )
+        else {
+
+            print(
+                "❌ Widget не смог загрузить UIImage"
+            )
+
+            return nil
+        }
+
+        print(
+            "✅ Widget avatar loaded"
+        )
+
+        print(
+            "   size: "
+                + "\(image.size.width)x\(image.size.height)"
+        )
+
+        return image
+    }
+
+    // =====================================================
+    // BODY
+    // =====================================================
+
+    var body: some View {
+
+        ZStack {
+
+            Circle()
+                .fill(
+                    Color.white.opacity(0.10)
+                )
+
+            if let image =
+                loadAvatarImage() {
+
+                Image(
+                    uiImage: image
+                )
+                .resizable()
+                .scaledToFill()
+                .frame(
+                    width: size,
+                    height: size
+                )
+                .clipShape(
+                    Circle()
+                )
+
+            } else {
+
+                Image(
+                    systemName:
+                        "person.fill"
+                )
+                .font(
+                    .system(
+                        size: size * 0.42
+                    )
+                )
+                .foregroundStyle(
+                    .white.opacity(0.8)
+                )
+            }
+        }
+        .frame(
+            width: size,
+            height: size
+        )
+        .clipShape(
+            Circle()
+        )
+    }
+}
+
+
+// =====================================================
+// LIVE ACTIVITY
+// =====================================================
 
 struct BearCordLiveActivityLiveActivity: Widget {
 
     var body: some WidgetConfiguration {
 
         ActivityConfiguration(
-            for: BearCordLiveActivityAttributes.self
+            for:
+                BearCordLiveActivityAttributes.self
         ) { context in
 
-            // =====================================================
+            // =================================================
             // LOCK SCREEN / BANNER
-            // =====================================================
+            // =================================================
 
-            HStack(spacing: 12) {
+            HStack(
+                spacing: 12
+            ) {
 
-                // Аватар пока системный.
-                // Позже можем сделать загрузку реального avatarURL.
-                ZStack {
-                    Circle()
-                        .fill(
-                            Color.white.opacity(0.10)
-                        )
-
-                    Image(
-                        systemName: "person.fill"
-                    )
-                    .font(
-                        .system(size: 18)
-                    )
-                    .foregroundStyle(
-                        .white.opacity(0.8)
-                    )
-                }
-                .frame(
-                    width: 42,
-                    height: 42
+                BearCordAvatarView(
+                    avatarURL:
+                        context.state.avatarURL,
+                    size: 42
                 )
 
                 VStack(
-                    alignment: .leading,
+                    alignment:
+                        .leading,
                     spacing: 3
                 ) {
 
-                    // Название чата
                     Text(
                         context.attributes.chatName
                     )
@@ -57,8 +268,9 @@ struct BearCordLiveActivityLiveActivity: Widget {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                    // Отправитель + сообщение
-                    HStack(spacing: 5) {
+                    HStack(
+                        spacing: 5
+                    ) {
 
                         Text(
                             context.state.senderName
@@ -66,6 +278,7 @@ struct BearCordLiveActivityLiveActivity: Widget {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
+                        .lineLimit(1)
 
                         Text(
                             context.state.message
@@ -80,8 +293,14 @@ struct BearCordLiveActivityLiveActivity: Widget {
 
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(
+                .horizontal,
+                16
+            )
+            .padding(
+                .vertical,
+                12
+            )
             .activityBackgroundTint(
                 Color.black
             )
@@ -91,48 +310,26 @@ struct BearCordLiveActivityLiveActivity: Widget {
 
         } dynamicIsland: { context in
 
-            // =====================================================
-            // DYNAMIC ISLAND
-            // =====================================================
-
             DynamicIsland {
 
-                // -------------------------------------------------
-                // LEFT
-                // -------------------------------------------------
+                // =================================================
+                // LEADING
+                // =================================================
 
                 DynamicIslandExpandedRegion(
                     .leading
                 ) {
 
-                    ZStack {
-                        Circle()
-                            .fill(
-                                Color.white.opacity(
-                                    0.12
-                                )
-                            )
-
-                        Image(
-                            systemName:
-                                "person.fill"
-                        )
-                        .font(
-                            .system(size: 16)
-                        )
-                        .foregroundStyle(
-                            .white.opacity(0.85)
-                        )
-                    }
-                    .frame(
-                        width: 38,
-                        height: 38
+                    BearCordAvatarView(
+                        avatarURL:
+                            context.state.avatarURL,
+                        size: 38
                     )
                 }
 
-                // -------------------------------------------------
-                // RIGHT
-                // -------------------------------------------------
+                // =================================================
+                // TRAILING
+                // =================================================
 
                 DynamicIslandExpandedRegion(
                     .trailing
@@ -147,16 +344,17 @@ struct BearCordLiveActivityLiveActivity: Widget {
                     .lineLimit(1)
                 }
 
-                // -------------------------------------------------
+                // =================================================
                 // BOTTOM
-                // -------------------------------------------------
+                // =================================================
 
                 DynamicIslandExpandedRegion(
                     .bottom
                 ) {
 
                     VStack(
-                        alignment: .leading,
+                        alignment:
+                            .leading,
                         spacing: 4
                     ) {
 
@@ -178,28 +376,22 @@ struct BearCordLiveActivityLiveActivity: Widget {
                         .lineLimit(2)
                     }
                     .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
+                        maxWidth:
+                            .infinity,
+                        alignment:
+                            .leading
                     )
                 }
 
             } compactLeading: {
 
-                // -------------------------------------------------
-                // COMPACT LEADING
-                // -------------------------------------------------
-
-                Image(
-                    systemName:
-                        "message.fill"
+                BearCordAvatarView(
+                    avatarURL:
+                        context.state.avatarURL,
+                    size: 22
                 )
-                .foregroundStyle(.white)
 
             } compactTrailing: {
-
-                // -------------------------------------------------
-                // COMPACT TRAILING
-                // -------------------------------------------------
 
                 Text(
                     context.state.senderName
@@ -210,18 +402,14 @@ struct BearCordLiveActivityLiveActivity: Widget {
 
             } minimal: {
 
-                // -------------------------------------------------
-                // MINIMAL
-                // -------------------------------------------------
-
-                Image(
-                    systemName:
-                        "message.fill"
+                BearCordAvatarView(
+                    avatarURL:
+                        context.state.avatarURL,
+                    size: 20
                 )
-                .foregroundStyle(.white)
-
             }
             .keylineTint(.blue)
         }
     }
 }
+

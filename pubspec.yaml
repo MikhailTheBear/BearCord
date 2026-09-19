@@ -1,6 +1,6 @@
 name: bearcord
 description: BearCord — современный кросс-платформенный мессенджер
-version: 1.0.2+3
+version: 1.0.3+4
 publish_to: none
 
 environment:

@@ -1,5 +1,5 @@
-
 // lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,67 +16,58 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 GlobalKey<ScaffoldMessengerState>();
 
 void main() {
-runApp(
-const ProviderScope(
-child: BearCordApp(),
-),
-);
+  runApp(
+    const ProviderScope(
+      child: BearCordApp(),
+    ),
+  );
 }
 
 class BearCordApp extends ConsumerWidget {
-const BearCordApp({super.key});
+  const BearCordApp({super.key});
 
-@override
-Widget build(BuildContext context, WidgetRef ref) {
-final authState = ref.watch(authProvider);
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
 
-// Запускаем polling для комнат, если пользователь авторизован
-WidgetsBinding.instance.addPostFrameCallback((_) {
-if (authState.isAuthenticated) {
-ref.read(roomsProvider.notifier).startPolling();
-} else {
-ref.read(roomsProvider.notifier).stopPolling();
-}
-});
+    return MaterialApp(
+      title: 'BearCord',
+      debugShowCheckedModeBanner: false,
 
-return MaterialApp(
-title: 'BearCord',
-debugShowCheckedModeBanner: false,
+      theme: AppTheme.darkTheme,
 
-theme: AppTheme.darkTheme,
+      // Глобальный ScaffoldMessenger для SnackBar
+      scaffoldMessengerKey: scaffoldMessengerKey,
 
-// Глобальный ScaffoldMessenger для SnackBar
-scaffoldMessengerKey: scaffoldMessengerKey,
+      home: authState.isLoading
+          ? const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      )
+          : authState.isAuthenticated
+          ? const RoomsScreen()
+          : const LoginScreen(),
 
-home: authState.isLoading
-? const Scaffold(
-body: Center(
-child: CircularProgressIndicator(),
-),
-)
-    : authState.isAuthenticated
-? const RoomsScreen()
-    : const LoginScreen(),
+      routes: {
+        '/login': (context) => const LoginScreen(),
+        '/register': (context) => const RegisterScreen(),
+        '/rooms': (context) => const RoomsScreen(),
+      },
 
-routes: {
-'/login': (context) => const LoginScreen(),
-'/register': (context) => const RegisterScreen(),
-'/rooms': (context) => const RoomsScreen(),
-},
+      onGenerateRoute: (settings) {
+        if (settings.name == '/chat') {
+          final code = settings.arguments as String? ?? '';
 
-onGenerateRoute: (settings) {
-if (settings.name == '/chat') {
-final code = settings.arguments as String? ?? '';
+          return MaterialPageRoute(
+            builder: (context) => ChatScreen(
+              code: code,
+            ),
+          );
+        }
 
-return MaterialPageRoute(
-builder: (context) => ChatScreen(
-code: code,
-),
-);
-}
-
-return null;
-},
-);
-}
+        return null;
+      },
+    );
+  }
 }
