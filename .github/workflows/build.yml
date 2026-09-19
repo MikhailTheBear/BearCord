@@ -54,11 +54,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
       - name: Fix Ubuntu mirror
         run: |
           sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
@@ -75,6 +70,22 @@ jobs:
             libsecret-1-dev \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev
+
+      - name: Install Flutter
+        run: |
+          git clone https://github.com/flutter/flutter.git \
+            --depth 1 \
+            --branch stable \
+            "$HOME/flutter"
+
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+
+          "$HOME/flutter/bin/flutter" precache --linux
+
+      - name: Check Flutter
+        run: |
+          flutter --version
+          flutter doctor -v
 
       - name: Install Flutter dependencies
         run: flutter pub get
