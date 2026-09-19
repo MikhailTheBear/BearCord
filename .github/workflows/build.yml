@@ -48,46 +48,46 @@ jobs:
           
           
   linux-arm64:
-    name: 🐧 Build Linux ARM64
-    runs-on: ubuntu-24.04-arm
+  name: 🐧 Build Linux ARM64
+  runs-on: ubuntu-24.04-arm
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: stable
 
-      - name: Fix Ubuntu mirror
-        run: |
-          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
-          sudo apt-get update
+    - name: Fix Ubuntu mirror
+      run: |
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+        sudo apt-get update
 
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get install -y \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            libsecret-1-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get install -y \
+          clang \
+          cmake \
+          ninja-build \
+          pkg-config \
+          libgtk-3-dev \
+          libsecret-1-dev \
+          libgstreamer1.0-dev \
+          libgstreamer-plugins-base1.0-dev
 
-      - name: Install Flutter dependencies
-        run: flutter pub get
+    - name: Install Flutter dependencies
+      run: flutter pub get
 
-      - name: Build Linux ARM64
-        run: flutter build linux --release
+    - name: Build Linux ARM64
+      run: flutter build linux --release
 
-      - name: Upload Linux ARM64
-        uses: actions/upload-artifact@v4
-        with:
-          name: BearCord-Linux-ARM64
-          path: build/linux/arm64/release/bundle/
+    - name: Upload Linux ARM64
+      uses: actions/upload-artifact@v4
+      with:
+        name: BearCord-Linux-ARM64
+        path: build/linux/arm64/release/bundle/
           
 
   windows:
