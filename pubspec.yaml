@@ -1,6 +1,6 @@
 name: bearcord
 description: BearCord — современный кросс-платформенный мессенджер
-version: 1.0.3+4
+version: 1.0.4+5
 publish_to: none
 
 environment:
@@ -14,7 +14,7 @@ dependencies:
   go_router: ^10.0.0
   dio: ^5.3.0
   url_launcher: ^6.3.2
-
+  app_links: ^6.4.1
   http: ^1.2.2
   web_socket_channel: ^3.0.3
   flutter_secure_storage: ^9.0.0

@@ -28,5 +28,20 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>CFBundleURLTypes</key>
+    <array>
+    	<dict>
+    		<key>CFBundleTypeRole</key>
+    		<string>Editor</string>
+
+    		<key>CFBundleURLName</key>
+    		<string>ru.tailsbear.bearcord</string>
+
+    		<key>CFBundleURLSchemes</key>
+    		<array>
+    			<string>bearcord</string>
+    		</array>
+    	</dict>
+    </array>
 </dict>
 </plist>
