@@ -1,210 +1,132 @@
+
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 
-import '../../features/auth/screens/service_auth_screen.dart';
+import 'beardiary.dart';
 
+/// Handles BearCord deep links:
+/// - bearcord://auth?auth_data=...
+/// - bearcord://beardiary
 class DeepLinkService {
   final AppLinks _appLinks = AppLinks();
-
-  StreamSubscription<Uri>? _subscription;
-
-  bool _initialized = false;
-
-  /// NavigatorKey BearCord.
   final GlobalKey<NavigatorState> navigatorKey;
 
-  DeepLinkService({
-    required this.navigatorKey,
-  });
+  StreamSubscription<Uri>? _subscription;
+  bool _initialized = false;
+  bool _handlingUri = false;
 
-  // ============================================================
-  // INIT
-  // ============================================================
+  /// Keep your existing authentication callback.
+  Future<void> Function(String authDataUrl)? onAuthRequest;
+
+  DeepLinkService({required this.navigatorKey});
 
   Future<void> init() async {
-    if (_initialized) {
-      return;
-    }
-
+    if (_initialized) return;
     _initialized = true;
-
-    // ----------------------------------------------------------
-    // Если BearCord был полностью закрыт
-    // ----------------------------------------------------------
 
     try {
       final initialUri = await _appLinks.getInitialLink();
-
       if (initialUri != null) {
         await _handleUri(initialUri);
       }
     } catch (e) {
-      debugPrint(
-        '❌ DeepLink initial error: $e',
-      );
+      debugPrint('BearCord initial deep-link error: $e');
     }
-
-    // ----------------------------------------------------------
-    // Если BearCord уже запущен
-    // ----------------------------------------------------------
 
     _subscription = _appLinks.uriLinkStream.listen(
-          (uri) {
-        _handleUri(uri);
-      },
-      onError: (error) {
-        debugPrint(
-          '❌ DeepLink stream error: $error',
-        );
+          (uri) => _handleUri(uri),
+      onError: (Object error) {
+        debugPrint('BearCord deep-link stream error: $error');
       },
     );
 
-    debugPrint(
-      '🔗 BearCord Deep Link Service запущен',
-    );
+    debugPrint('BearCord DeepLinkService started');
   }
-
-  // ============================================================
-  // HANDLE URI
-  // ============================================================
 
   Future<void> _handleUri(Uri uri) async {
-    debugPrint(
-      '🔗 Получен Deep Link: $uri',
-    );
-
-    // ----------------------------------------------------------
-    // Проверяем схему
-    // ----------------------------------------------------------
+    debugPrint('BearCord deep link received: $uri');
 
     if (uri.scheme != 'bearcord') {
-      debugPrint(
-        '⚠️ Неизвестная схема: ${uri.scheme}',
-      );
-
+      debugPrint('Unknown deep-link scheme: ${uri.scheme}');
       return;
     }
 
-    // ----------------------------------------------------------
-    // Проверяем действие
-    //
-    // bearcord://auth?auth_data=...
-    //
-    // scheme = bearcord
-    // host   = auth
-    // ----------------------------------------------------------
-
-    if (uri.host != 'auth') {
-      debugPrint(
-        '⚠️ Неизвестный BearCord Deep Link action: ${uri.host}',
-      );
-
+    // bearcord://beardiary
+    if (uri.host == 'beardiary' &&
+        (uri.path.isEmpty || uri.path == '/')) {
+      await _openBearDiary();
       return;
     }
 
-    // ----------------------------------------------------------
-    // Получаем auth_data
-    // ----------------------------------------------------------
+    // Existing authentication link.
+    if (uri.host == 'auth') {
+      final authDataUrl = uri.queryParameters['auth_data'];
 
-    final authDataUrl = uri.queryParameters['auth_data'];
+      if (authDataUrl == null || authDataUrl.trim().isEmpty) {
+        debugPrint('Auth deep link is missing auth_data');
+        return;
+      }
 
-    if (authDataUrl == null ||
-        authDataUrl.trim().isEmpty) {
-      debugPrint(
-        '❌ Deep Link не содержит auth_data',
+      await Future<void>.delayed(
+        const Duration(milliseconds: 300),
       );
 
+      if (navigatorKey.currentState == null ||
+          navigatorKey.currentContext == null) {
+        debugPrint('Navigator is not ready for auth deep link');
+        return;
+      }
+
+      final callback = onAuthRequest;
+
+      if (callback == null) {
+        debugPrint('onAuthRequest is not configured');
+        return;
+      }
+
+      await callback(authDataUrl);
       return;
     }
 
-    debugPrint(
-      '🐻 BearCord Auth URL: $authDataUrl',
-    );
-
-    // ----------------------------------------------------------
-    // Небольшая задержка нужна при cold start,
-    // чтобы Navigator уже существовал.
-    // ----------------------------------------------------------
-
-    await Future.delayed(
-      const Duration(milliseconds: 300),
-    );
-
-    if (navigatorKey.currentState == null) {
-      debugPrint(
-        '❌ Navigator ещё не готов',
-      );
-
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // Получаем текущий аккаунт BearCord
-    //
-    // ЗДЕСЬ нужно использовать твой AuthProvider.
-    // Пока оставляем получение через context.
-    // ----------------------------------------------------------
-
-    final context = navigatorKey.currentContext;
-
-    if (context == null) {
-      debugPrint(
-        '❌ BuildContext отсутствует',
-      );
-
-      return;
-    }
-
-    /*
-     * ВАЖНО:
-     *
-     * Здесь нужно получить:
-     *
-     * user.id
-     * user.username
-     * user.avatar
-     *
-     * из твоего AuthProvider.
-     *
-     * Я ниже сделал временную передачу через
-     * отдельный callback, чтобы DeepLinkService
-     * не был жёстко связан с Riverpod.
-     */
-
-    if (onAuthRequest == null) {
-      debugPrint(
-        '❌ DeepLinkService: onAuthRequest не установлен',
-      );
-
-      return;
-    }
-
-    await onAuthRequest!(
-      authDataUrl,
-    );
+    debugPrint('Unknown BearCord deep-link action: ${uri.host}');
   }
 
-  // ============================================================
-  // AUTH CALLBACK
-  // ============================================================
+  Future<void> _openBearDiary() async {
+    if (_handlingUri) return;
+    _handlingUri = true;
 
-  Future<void> Function(String authDataUrl)? onAuthRequest;
+    try {
+      await Future<void>.delayed(
+        const Duration(milliseconds: 250),
+      );
 
-  // ============================================================
-  // DISPOSE
-  // ============================================================
+      final navigator = navigatorKey.currentState;
+
+      if (navigator == null) {
+        debugPrint('Navigator is not ready for BearDiary');
+        return;
+      }
+
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/beardiary'),
+          builder: (_) => const SchoolDiary(),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Could not open BearDiary: $e');
+    } finally {
+      _handlingUri = false;
+    }
+  }
 
   Future<void> dispose() async {
     await _subscription?.cancel();
-
     _subscription = null;
-
     _initialized = false;
 
-    debugPrint(
-      '🔗 BearCord Deep Link Service остановлен',
-    );
+    debugPrint('BearCord DeepLinkService stopped');
   }
 }

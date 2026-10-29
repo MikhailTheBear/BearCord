@@ -84,7 +84,7 @@ print('🔌 Подключение к BearCord WebSocket...');
 
 try {
 final channel = WebSocketChannel.connect(
-Uri.parse('ws://hub.tailsbear.ru:9090'),
+Uri.parse('wss://hub.tailsbear.ru/bearcord/ws'),
 );
 
 _channel = channel;

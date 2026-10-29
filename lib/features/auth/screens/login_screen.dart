@@ -109,7 +109,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       final channel = WebSocketChannel.connect(
         Uri.parse(
-          'ws://hub.tailsbear.ru:9090',
+          'wss://hub.tailsbear.ru/bearcord/ws',
         ),
       );
 
