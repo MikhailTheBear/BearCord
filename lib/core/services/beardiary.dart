@@ -1647,48 +1647,6 @@ class _GradesTabState extends State<_GradesTab> {
                           const SizedBox(height: 6),
                           _GradeBadge(grade: '$year', label: 'год'),
                         ],
-                        if (showDelete && entry.value.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          const _GlassDivider(),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Записи для удаления',
-                            style: TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          ...entry.value.map(
-                                (g) => Padding(
-                              padding:
-                              const EdgeInsets.symmetric(vertical: 2),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      '${_periodLabel(g['period'], g['quarter'])} · ${_displayDate(g['grade_date'])}',
-                                      style: const TextStyle(
-                                        color: AppTheme.textSecondary,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () =>
-                                        _deleteGrade(_int(g['id'])),
-                                    icon: Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: AppTheme.error,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
