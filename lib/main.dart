@@ -18,11 +18,9 @@ import 'features/chat/screens/chat_screen.dart';
 // GLOBAL KEYS
 // ============================================================
 
-// Глобальный ключ для показа SnackBar из любого экрана
 final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 GlobalKey<ScaffoldMessengerState>();
 
-// Глобальный ключ Navigator
 final GlobalKey<NavigatorState> navigatorKey =
 GlobalKey<NavigatorState>();
 
@@ -56,15 +54,12 @@ class BearCordApp extends ConsumerStatefulWidget {
 // ============================================================
 
 class _BearCordAppState extends ConsumerState<BearCordApp> {
-  late final DeepLinkService _deepLinkService;
+  DeepLinkService? _deepLinkService;
+  bool _deepLinksInitialized = false;
 
   @override
   void initState() {
     super.initState();
-
-    _deepLinkService = DeepLinkService(
-      navigatorKey: navigatorKey,
-    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initDeepLinks();
@@ -76,9 +71,22 @@ class _BearCordAppState extends ConsumerState<BearCordApp> {
   // ============================================================
 
   Future<void> _initDeepLinks() async {
-    _deepLinkService.onAuthRequest = _handleServiceAuth;
+    if (_deepLinksInitialized || !mounted) return;
+    _deepLinksInitialized = true;
 
-    await _deepLinkService.init();
+    // Получаем ProviderContainer через ProviderScope.
+    final container = ProviderScope.containerOf(context);
+
+    final service = DeepLinkService(
+      navigatorKey: navigatorKey,
+      container: container,
+    );
+
+    service.onAuthRequest = _handleServiceAuth;
+
+    _deepLinkService = service;
+
+    await service.init();
   }
 
   // ============================================================
@@ -156,7 +164,7 @@ class _BearCordAppState extends ConsumerState<BearCordApp> {
 
   @override
   void dispose() {
-    _deepLinkService.dispose();
+    _deepLinkService?.dispose();
 
     super.dispose();
   }

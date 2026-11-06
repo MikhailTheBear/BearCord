@@ -1,9 +1,11 @@
-
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '/core/services/storage_service.dart';
+import '/core/providers/auth_provider.dart'; // ← путь к вашему authProvider
 import 'beardiary.dart';
 
 /// Handles BearCord deep links:
@@ -12,6 +14,8 @@ import 'beardiary.dart';
 class DeepLinkService {
   final AppLinks _appLinks = AppLinks();
   final GlobalKey<NavigatorState> navigatorKey;
+  final StorageService _storage;
+  final ProviderContainer _container;
 
   StreamSubscription<Uri>? _subscription;
   bool _initialized = false;
@@ -20,7 +24,12 @@ class DeepLinkService {
   /// Keep your existing authentication callback.
   Future<void> Function(String authDataUrl)? onAuthRequest;
 
-  DeepLinkService({required this.navigatorKey});
+  DeepLinkService({
+    required this.navigatorKey,
+    required ProviderContainer container,
+    StorageService? storage,
+  })  : _container = container,
+        _storage = storage ?? StorageService();
 
   Future<void> init() async {
     if (_initialized) return;
@@ -109,10 +118,38 @@ class DeepLinkService {
         return;
       }
 
+      // Берём id пользователя BearCord из Riverpod-сессии.
+      final authState = _container.read(authProvider);
+      final userId = authState.user?.id ?? 0;
+
+      debugPrint(
+        'BearDiary deep link: userId=$userId, '
+            'authenticated=${authState.isAuthenticated}',
+      );
+
+      if (userId <= 0) {
+        debugPrint(
+          'BearDiary deep link ignored: user is not authenticated',
+        );
+        return;
+      }
+
+      // Токен сервиса Beardiary (если есть) — из StorageService.
+      // Если пусто, SchoolDiary сам подставит fallback.
+      final serviceToken = await _storage.getBeardiaryServiceToken();
+
+      debugPrint(
+        'BearDiary deep link: '
+            'serviceToken empty=${serviceToken == null || serviceToken.isEmpty}',
+      );
+
       await navigator.push<void>(
         MaterialPageRoute<void>(
           settings: const RouteSettings(name: '/beardiary'),
-          builder: (_) => const SchoolDiary(),
+          builder: (_) => SchoolDiary(
+            bearcordUserId: userId,
+            bearcordToken: serviceToken,
+          ),
         ),
       );
     } catch (e) {

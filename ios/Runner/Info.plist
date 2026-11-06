@@ -90,5 +90,7 @@
 
         <key>NSMicrophoneUsageDescription</key>
         <string>BearCord использует микрофон для записи звука в видео и голосовых сообщениях.</string>
+        <key>NSFaceIDUsageDescription</key>
+        <string>Используется для защиты входа в веб-дневник</string>
 	</dict>
 </plist>
