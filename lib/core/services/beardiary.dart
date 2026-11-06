@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:ui';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:local_auth/local_auth.dart';
@@ -569,7 +569,6 @@ class _DiaryShellState extends State<_DiaryShell> {
       final canCheck = await _localAuth.canCheckBiometrics;
       final isSupported = await _localAuth.isDeviceSupported();
       if (!canCheck || !isSupported) {
-        _snack('Биометрия недоступна на этом устройстве.');
         return false;
       }
       return await _localAuth.authenticate(
@@ -577,10 +576,19 @@ class _DiaryShellState extends State<_DiaryShell> {
         biometricOnly: true,
         persistAcrossBackgrounding: true,
       );
-    } catch (e) {
-      _snack('Не удалось выполнить Face ID: $e');
+    } catch (_) {
       return false;
     }
+  }
+
+  /// Запрашивает пароль у пользователя вручную.
+  /// Возвращает введённый пароль или null, если пользователь отменил ввод.
+  Future<String?> _askPassword() {
+    return showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.65),
+      builder: (_) => const _ManualPasswordDialog(),
+    );
   }
 
   void _snack(String message) {
@@ -604,11 +612,24 @@ class _DiaryShellState extends State<_DiaryShell> {
     }
     setState(() => _webBusy = true);
     try {
-      final ok = await _authenticateBiometrics();
-      if (!ok) return;
+      // Пытаемся пройти биометрию.
+      final bioOk = await _authenticateBiometrics();
+
+      // Пароль: если биометрия пройдена — генерируем; иначе — берём введённый вручную.
+      String password;
+      if (bioOk) {
+        password = _generatePassword(token, widget.bearcordUserId);
+      } else {
+        final manual = await _askPassword();
+        if (manual == null) {
+          // Пользователь отменил ввод.
+          return;
+        }
+        password = manual;
+      }
+
       if (!mounted) return;
       final username = (widget.user['login'] ?? '').toString();
-      final password = _generatePassword(token, widget.bearcordUserId);
       final url = Uri.https('hub.tailsbear.ru', '/beardiary/', {
         'username': username,
         'password': password,
@@ -865,8 +886,12 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = widget.api.home());
-    await _future;
+    // Важно: блочная форма setState — колбэк не возвращает Future.
+    final future = widget.api.home();
+    setState(() {
+      _future = future;
+    });
+    await future;
   }
 
   @override
@@ -1186,16 +1211,34 @@ class _GradesTabState extends State<_GradesTab> {
   late Future<Map<String, dynamic>> _future;
   int? _classId;
 
+  /// Выбранный ученик (только для учителя).
+  Map<String, dynamic>? _selectedStudent;
+
   bool get _teacher => widget.user['role'] == 'teacher';
 
   @override
   void initState() {
     super.initState();
-    _future = widget.api.grades(classId: _classId);
+    if (_teacher) {
+      // Учитель сначала должен выбрать ученика — не грузим оценки.
+      _future = Future.value(const <String, dynamic>{});
+    } else {
+      _reload();
+    }
   }
 
   void _reload() {
-    setState(() => _future = widget.api.grades(classId: _classId));
+    setState(() {
+      // Если выбран ученик — фильтруем только по нему,
+      // чтобы не пересекаться с фильтром по классу (иначе можно получить пусто).
+      final studentId = _selectedStudent != null
+          ? _int(_selectedStudent!['id'])
+          : null;
+      _future = widget.api.grades(
+        classId: studentId == null ? _classId : null,
+        studentId: studentId,
+      );
+    });
   }
 
   void _message(String value) {
@@ -1205,51 +1248,7 @@ class _GradesTabState extends State<_GradesTab> {
     );
   }
 
-  Future<void> _addGrade() async {
-    try {
-      final classes = await widget.api.classes();
-      final students = await widget.api.students(classId: _classId);
-      final subjects = await widget.api.subjects();
-      if (!mounted) return;
-
-      final studentList = _list(students['students']);
-      final subjectList = _list(subjects['subjects']);
-      if (studentList.isEmpty || subjectList.isEmpty) {
-        _message('На сервере должны быть ученики и предметы.');
-        return;
-      }
-
-      final result = await showDialog<Map<String, dynamic>>(
-        context: context,
-        barrierColor: Colors.black.withValues(alpha: 0.65),
-        builder: (_) => _AddGradeDialog(
-          students: studentList,
-          subjects: subjectList,
-          classes: _list(classes['classes']),
-        ),
-      );
-      if (result == null) return;
-
-      await widget.api.addGrade(result);
-      if (!mounted) return;
-      _reload();
-      _message('Оценка добавлена.');
-    } catch (e) {
-      if (mounted) _message(_errorText(e));
-    }
-  }
-
-  Future<void> _deleteGrade(int id) async {
-    try {
-      await widget.api.deleteGrade(id);
-      if (!mounted) return;
-      _reload();
-      _message('Оценка удалена.');
-    } catch (e) {
-      if (mounted) _message(_errorText(e));
-    }
-  }
-
+  /// Выбор класса (фильтр списка учеников).
   Future<void> _pickClass() async {
     try {
       final data = await widget.api.classes();
@@ -1300,237 +1299,405 @@ class _GradesTabState extends State<_GradesTab> {
         ),
       );
       if (picked == null) return;
-      setState(() => _classId = picked == -1 ? null : picked);
+      setState(() {
+        _classId = picked == -1 ? null : picked;
+        // При смене класса сбрасываем выбранного ученика.
+        _selectedStudent = null;
+      });
       _reload();
     } catch (e) {
       _message(_errorText(e));
     }
   }
 
+  /// Выбор ученика из списка.
+  Future<void> _pickStudent() async {
+    try {
+      final data = await widget.api.students(classId: _classId);
+      final students = _list(data['students']);
+      if (!mounted) return;
+      if (students.isEmpty) {
+        _message('Нет учеников для выбора.');
+        return;
+      }
+      final picked = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black.withValues(alpha: 0.55),
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          return _GlassBottomSheet(
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Выбери ученика',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight:
+                        MediaQuery.of(sheetContext).size.height * 0.6,
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: students.length,
+                        separatorBuilder: (_, __) =>
+                        const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final s = students[i];
+                          return _GlassMenuButton(
+                            icon: Icons.person_rounded,
+                            title:
+                            '${s['full_name'] ?? s['login'] ?? 'Ученик'}'
+                                '${s['class_name'] != null ? ' · ${s['class_name']}' : ''}',
+                            onTap: () =>
+                                Navigator.of(sheetContext).pop(s),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _GlassMenuButton(
+                      icon: Icons.close_rounded,
+                      title: 'Закрыть',
+                      color: AppTheme.textSecondary,
+                      onTap: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      if (picked == null) return;
+      setState(() {
+        _selectedStudent = picked;
+        // Сбрасываем фильтр по классу: ученик мог быть выбран не из
+        // выбранного ранее класса — иначе сервер вернёт пустой список.
+        _classId = null;
+      });
+      _reload();
+    } catch (e) {
+      _message(_errorText(e));
+    }
+  }
+
+  /// Добавление оценки выбранному ученику.
+  Future<void> _addGrade() async {
+    final student = _selectedStudent;
+    if (student == null) {
+      _message('Сначала выберите ученика.');
+      return;
+    }
+    try {
+      final subjects = await widget.api.subjects();
+      if (!mounted) return;
+      final subjectList = _list(subjects['subjects']);
+      if (subjectList.isEmpty) {
+        _message('На сервере должны быть предметы.');
+        return;
+      }
+
+      final result = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: 0.65),
+        builder: (_) => _AddGradeDialog(
+          student: student,
+          subjects: subjectList,
+        ),
+      );
+      if (result == null) return;
+
+      await widget.api.addGrade(result);
+      if (!mounted) return;
+      _reload();
+      _message('Оценка добавлена.');
+    } catch (e) {
+      if (mounted) _message(_errorText(e));
+    }
+  }
+
+  Future<void> _deleteGrade(int id) async {
+    try {
+      await widget.api.deleteGrade(id);
+      if (!mounted) return;
+      _reload();
+      _message('Оценка удалена.');
+    } catch (e) {
+      if (mounted) _message(_errorText(e));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        if (_teacher)
+    // Для учителя — отдельная ветка: требуется выбрать ученика.
+    if (_teacher) {
+      return Column(
+        children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: _PrimaryButton(
+                // Строка выбора класса + кнопка-фильтр.
+                Row(
+                  children: [
+                    Expanded(
+                      child: _PrimaryButton(
+                        title: _selectedStudent == null
+                            ? 'Выбрать ученика'
+                            : '${_selectedStudent!['full_name'] ?? _selectedStudent!['login']}',
+                        icon: Icons.person_search_rounded,
+                        onTap: _pickStudent,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 52,
+                      child: _PrimaryButton(
+                        title: '',
+                        icon: Icons.class_rounded,
+                        onTap: _pickClass,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_selectedStudent != null) ...[
+                  const SizedBox(height: 10),
+                  _PrimaryButton(
                     title: 'Выставить оценку',
                     icon: Icons.add_rounded,
                     onTap: _addGrade,
                   ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 52,
-                  child: _PrimaryButton(
-                    title: '',
-                    icon: Icons.class_rounded,
-                    onTap: _pickClass,
-                  ),
-                ),
+                ],
               ],
             ),
           ),
-        Expanded(
-          child: FutureBuilder<Map<String, dynamic>>(
-            future: _future,
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: _LoadingIndicator());
-              }
-              if (snap.hasError) {
-                return _RetryCard(
-                  message: _errorText(snap.error),
-                  onRetry: _reload,
-                );
-              }
+          Expanded(
+            child: _selectedStudent == null
+                ? const _EmptyState(
+              icon: Icons.person_search_rounded,
+              text:
+              'Выберите ученика, чтобы просмотреть и выставить его оценки.',
+            )
+                : _buildGradesList(showDelete: true),
+          ),
+        ],
+      );
+    }
 
-              final grades = _list(snap.data?['grades']);
-              final summary = _list(snap.data?['summary']);
+    // Для ученика — как было, но без кнопок управления.
+    return Column(
+      children: [
+        Expanded(child: _buildGradesList()),
+      ],
+    );
+  }
 
-              if (grades.isEmpty) {
-                return const _EmptyState(
-                  icon: Icons.grade_outlined,
-                  text: 'Оценок пока нет.',
-                );
-              }
+  Widget _buildGradesList({bool showDelete = false}) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: _LoadingIndicator());
+        }
+        if (snap.hasError) {
+          return _RetryCard(
+            message: _errorText(snap.error),
+            onRetry: _reload,
+          );
+        }
 
-              final grouped = <String, List<Map<String, dynamic>>>{};
-              for (final grade in grades) {
-                final subject = (grade['subject'] ?? 'Без предмета').toString();
-                grouped.putIfAbsent(subject, () => []).add(grade);
-              }
+        final grades = _list(snap.data?['grades']);
+        final summary = _list(snap.data?['summary']);
 
-              final summaryMap = <String, Map<String, dynamic>>{};
-              for (final s in summary) {
-                summaryMap['${s['subject']}'] = s;
-              }
+        if (grades.isEmpty) {
+          return const _EmptyState(
+            icon: Icons.grade_outlined,
+            text: 'Оценок пока нет.',
+          );
+        }
 
-              return RefreshIndicator(
-                color: AppTheme.primary,
-                onRefresh: () async => _reload(),
-                child: ListView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 130),
-                  children: [
-                    _SectionTitle(
-                      title: 'Успеваемость',
-                      subtitle: 'Оценки по предметам',
-                    ),
-                    ...grouped.entries.map((entry) {
-                      final s = summaryMap[entry.key] ?? {};
-                      final avg = s['average'];
-                      final quarters = (s['quarters'] is Map)
-                          ? Map<String, dynamic>.from(s['quarters'] as Map)
-                          : <String, dynamic>{};
-                      final year = s['year'];
+        final grouped = <String, List<Map<String, dynamic>>>{};
+        for (final grade in grades) {
+          final subject = (grade['subject'] ?? 'Без предмета').toString();
+          grouped.putIfAbsent(subject, () => []).add(grade);
+        }
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _GlassContainer(
-                          radius: 22,
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+        final summaryMap = <String, Map<String, dynamic>>{};
+        for (final s in summary) {
+          summaryMap['${s['subject']}'] = s;
+        }
+
+        return RefreshIndicator(
+          color: AppTheme.primary,
+          onRefresh: () async => _reload(),
+          child: ListView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 130),
+            children: [
+              _SectionTitle(
+                title: 'Успеваемость',
+                subtitle: _selectedStudent != null
+                    ? 'Оценки: ${_selectedStudent!['full_name'] ?? _selectedStudent!['login']}'
+                    : 'Оценки по предметам',
+              ),
+              ...grouped.entries.map((entry) {
+                final s = summaryMap[entry.key] ?? {};
+                final avg = s['average'];
+                final quarters = (s['quarters'] is Map)
+                    ? Map<String, dynamic>.from(s['quarters'] as Map)
+                    : <String, dynamic>{};
+                final year = s['year'];
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _GlassContainer(
+                    radius: 22,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                entry.key,
+                                style: const TextStyle(
+                                  color: AppTheme.primary,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            if (avg != null)
+                              _StatChip(
+                                label: 'средний',
+                                value: '$avg',
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'За уроки',
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: entry.value
+                              .where((g) => g['period'] == 'lesson')
+                              .map(
+                                (g) => _GradeChip(
+                              item: g,
+                              onDelete: showDelete
+                                  ? () => _deleteGrade(_int(g['id']))
+                                  : null,
+                            ),
+                          )
+                              .toList(),
+                        ),
+                        if (quarters.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'За четверти',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: quarters.entries
+                                .map((e) => _GradeBadge(
+                              grade: '${e.value}',
+                              label: '${e.key} четв.',
+                            ))
+                                .toList(),
+                          ),
+                        ],
+                        if (year != null) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Годовая',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _GradeBadge(grade: '$year', label: 'год'),
+                        ],
+                        if (showDelete && entry.value.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const _GlassDivider(),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Записи для удаления',
+                            style: TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          ...entry.value.map(
+                                (g) => Padding(
+                              padding:
+                              const EdgeInsets.symmetric(vertical: 2),
+                              child: Row(
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      entry.key,
+                                      '${_periodLabel(g['period'], g['quarter'])} · ${_displayDate(g['grade_date'])}',
                                       style: const TextStyle(
-                                        color: AppTheme.primary,
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w900,
+                                        color: AppTheme.textSecondary,
+                                        fontSize: 11,
                                       ),
                                     ),
                                   ),
-                                  if (avg != null)
-                                    _StatChip(
-                                      label: 'средний',
-                                      value: '$avg',
+                                  IconButton(
+                                    onPressed: () =>
+                                        _deleteGrade(_int(g['id'])),
+                                    icon: Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: AppTheme.error,
+                                      size: 20,
                                     ),
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'За уроки',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: entry.value
-                                    .where((g) => g['period'] == 'lesson')
-                                    .map(
-                                      (g) => _GradeChip(
-                                    item: g,
-                                    onDelete: _teacher
-                                        ? () => _deleteGrade(_int(g['id']))
-                                        : null,
-                                  ),
-                                )
-                                    .toList(),
-                              ),
-                              if (quarters.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'За четверти',
-                                  style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: quarters.entries
-                                      .map((e) => _GradeBadge(
-                                    grade: '${e.value}',
-                                    label: '${e.key} четв.',
-                                  ))
-                                      .toList(),
-                                ),
-                              ],
-                              if (year != null) ...[
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'Годовая',
-                                  style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                _GradeBadge(grade: '$year', label: 'год'),
-                              ],
-                              if (_teacher && entry.value.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                const _GlassDivider(),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Записи для удаления',
-                                  style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                ...entry.value.map(
-                                      (g) => Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 2,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            '${g['student'] ?? ''} · ${_periodLabel(g['period'], g['quarter'])} · ${_displayDate(g['grade_date'])}',
-                                            style: const TextStyle(
-                                              color: AppTheme.textSecondary,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          onPressed: () =>
-                                              _deleteGrade(_int(g['id'])),
-                                          icon: Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: AppTheme.error,
-                                            size: 20,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              );
-            },
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -1685,7 +1852,9 @@ class _HomeworkTabState extends State<_HomeworkTab> {
   }
 
   void _reload() {
-    setState(() => _future = widget.api.homework(classId: _classId));
+    setState(() {
+      _future = widget.api.homework(classId: _classId);
+    });
   }
 
   void _message(String value) {
@@ -1931,7 +2100,11 @@ class _ClassesPageState extends State<_ClassesPage> {
     _future = widget.api.classes();
   }
 
-  void _reload() => setState(() => _future = widget.api.classes());
+  void _reload() {
+    setState(() {
+      _future = widget.api.classes();
+    });
+  }
 
   Future<void> _add() async {
     final controller = TextEditingController();
@@ -2106,7 +2279,11 @@ class _SubjectsPageState extends State<_SubjectsPage> {
     _future = widget.api.subjects();
   }
 
-  void _reload() => setState(() => _future = widget.api.subjects());
+  void _reload() {
+    setState(() {
+      _future = widget.api.subjects();
+    });
+  }
 
   Future<void> _add() async {
     final controller = TextEditingController();
@@ -2267,14 +2444,16 @@ class _StudentsPageState extends State<_StudentsPage> {
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  void _load() {
     _future = widget.api.students(classId: _classId);
   }
 
-  void _reload() => setState(_load);
+  void _reload() {
+    setState(() {
+      _future = widget.api.students(classId: _classId);
+    });
+  }
+
+  // ... остальное без изменений
 
   Future<void> _add() async {
     try {
@@ -2576,15 +2755,15 @@ class _StudentDialogState extends State<_StudentDialog> {
   }
 }
 
+/// Диалог добавления оценки конкретному ученику.
+/// Ученик уже предустановлен, выбор ученика отсутствует.
 class _AddGradeDialog extends StatefulWidget {
-  final List<Map<String, dynamic>> students;
+  final Map<String, dynamic> student;
   final List<Map<String, dynamic>> subjects;
-  final List<Map<String, dynamic>> classes;
 
   const _AddGradeDialog({
-    required this.students,
+    required this.student,
     required this.subjects,
-    required this.classes,
   });
 
   @override
@@ -2592,7 +2771,6 @@ class _AddGradeDialog extends StatefulWidget {
 }
 
 class _AddGradeDialogState extends State<_AddGradeDialog> {
-  int? _student;
   int? _subject;
   String _grade = '5';
   String _period = 'lesson';
@@ -2602,33 +2780,23 @@ class _AddGradeDialogState extends State<_AddGradeDialog> {
   @override
   void initState() {
     super.initState();
-    _student = _int(widget.students.first['id']);
     _subject = _int(widget.subjects.first['id']);
   }
 
   @override
   Widget build(BuildContext context) {
+    final studentName = (widget.student['full_name'] ??
+        widget.student['login'] ??
+        'Ученик')
+        .toString();
+
     return _GlassDialog(
       icon: Icons.grade_rounded,
       title: 'Новая оценка',
-      message: 'Выбери ученика, предмет и значение оценки.',
+      message: 'Ученик: $studentName',
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _GlassDropdown<int>(
-            value: _student,
-            label: 'Ученик',
-            items: widget.students
-                .map(
-                  (s) => DropdownMenuItem(
-                value: _int(s['id']),
-                child: Text('${s['full_name'] ?? s['login']}'),
-              ),
-            )
-                .toList(),
-            onChanged: (v) => setState(() => _student = v),
-          ),
-          const SizedBox(height: 12),
           _GlassDropdown<int>(
             value: _subject,
             label: 'Предмет',
@@ -2710,7 +2878,7 @@ class _AddGradeDialogState extends State<_AddGradeDialog> {
             color: AppTheme.primary,
             onTap: () {
               Navigator.of(context).pop({
-                'student_id': _student,
+                'student_id': _int(widget.student['id']),
                 'subject_id': _subject,
                 'grade': _grade,
                 'period': _period,
@@ -3883,6 +4051,76 @@ class _GlassDialog extends StatelessWidget {
   }
 }
 
+class _ManualPasswordDialog extends StatefulWidget {
+  const _ManualPasswordDialog();
+
+  @override
+  State<_ManualPasswordDialog> createState() => _ManualPasswordDialogState();
+}
+
+class _ManualPasswordDialogState extends State<_ManualPasswordDialog> {
+  final _controller = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isEmpty) return;
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassDialog(
+      icon: Icons.lock_outline_rounded,
+      title: 'Вход в веб-дневник',
+      message:
+      'Биометрия недоступна. Введите пароль от веб-дневника вручную.',
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        obscureText: _obscure,
+        style: const TextStyle(color: AppTheme.textPrimary),
+        decoration: InputDecoration(
+          labelText: 'Пароль',
+          suffixIcon: IconButton(
+            onPressed: () => setState(() => _obscure = !_obscure),
+            icon: Icon(
+              _obscure
+                  ? Icons.visibility_rounded
+                  : Icons.visibility_off_rounded,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        Expanded(
+          child: _DialogButton(
+            title: 'Отмена',
+            onTap: () => Navigator.of(context).pop(),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _DialogButton(
+            title: 'Войти',
+            filled: true,
+            color: AppTheme.primary,
+            onTap: _submit,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _GlassBottomSheet extends StatelessWidget {
   final Widget child;
 
@@ -4025,32 +4263,35 @@ class _DiaryWebViewPageState extends State<DiaryWebViewPage> {
   @override
   void initState() {
     super.initState();
+
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF090909))
-    // Добавьте эту строку для обработки alert
-      ..setOnJavaScriptAlertDialog((JavaScriptAlertDialogRequest request) async {
-        // Здесь вы можете показать свой диалог или просто вывести сообщение в консоль
-        // request.message содержит текст, который сайт хочет показать
-        print('JS Alert: ${request.message}');
+      ..setOnJavaScriptAlertDialog(
+            (JavaScriptAlertDialogRequest request) async {
+          print('JS Alert: ${request.message}');
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Сообщение с сайта'),
+              content: Text(request.message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
 
-        // Например, показать стандартный диалог Flutter
-        // Важно: нужно вернуть Future, чтобы WebView знал, что диалог обработан
-        await showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Сообщение с сайта'),
-            content: Text(request.message),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      })
-      ..loadRequest(widget.url);
+    // setBackgroundColor использует setOpaque, который не реализован
+    // в webview_flutter_wkwebview на macOS и вызывает UnimplementedError.
+    if (defaultTargetPlatform != TargetPlatform.macOS) {
+      controller.setBackgroundColor(const Color(0xFF090909));
+    }
+
+    controller.loadRequest(widget.url);
   }
 
   @override
